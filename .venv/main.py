@@ -1,6 +1,7 @@
 from config import SEARCH_CONFIG
 from scraper import scrape_main_results
 from db import init_db
+from verifier import verify_active_listings
 
 
 def main():
@@ -25,6 +26,9 @@ def main():
 
     print(f"\n✅ Finished scraping {len(seen_vins)} unique VINs")
 
+    # Update the listings marked as active, and check on current status
+
+    verify_active_listings()
 
 if __name__ == "__main__":
     main()

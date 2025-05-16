@@ -19,7 +19,10 @@ SEARCH_CONFIG = {
         {"make": "honda", "model": "honda-cr_v_hybrid"},
         {"make": "toyota", "model": "toyota-rav4_hybrid"},
         {"make": "volkswagen", "model": "volkswagen-tiguan"},
-        {"make": "hyundai", "model": "hyundai-santa_fe_hev"}
+        {"make": "hyundai", "model": "hyundai-tucson_hybrid"},
+        {"make": "mazda", "model": "mazda-cx_50_hybrid"},
+        {"make": "subaru", "model": "subaru-forester_hybrid"},
+        {"make": "kia", "model": "kia-sportage_hybrid"},
     ],
 
     # Priority: local listings are processed first; national listings skip VINs already seen locally
