@@ -4,7 +4,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date, timedelta
 
-DB_PATH = "/data/cars.db"
+DB_PATH = "data/cars.db"
 
 st.set_page_config(layout="wide")
 st.title("🚘 Car Market Summary Dashboard")

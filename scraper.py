@@ -43,26 +43,26 @@ def fetch_page_with_fallback(url, wait_for_selector=None):
     for ua_string in user_agents_to_try:
         try:
             headers = {"User-Agent": ua_string}
-            print(f"     ↪ Trying UA: {ua_string[:50]}...")
+            print(f"Trying UA: {ua_string[:50]}...")
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 return BeautifulSoup(res.text, "html.parser")
         except Exception as e:
-            print(f"      UA failed: {ua_string[:30]} — {e}")
+            print(f"UA failed: {ua_string[:30]} — {e}")
 
     # Fall back to cloudscraper
     try:
-        print("     ↪ Falling back to cloudscraper...")
+        print("Falling back to cloudscraper...")
         scraper = cloudscraper.create_scraper()
         res = scraper.get(url, timeout=10)
         if res.status_code == 200:
             return BeautifulSoup(res.text, "html.parser")
     except Exception as ce:
-        print(f"      Cloudscraper failed: {ce}")
+        print(f"Cloudscraper failed: {ce}")
 
     # Final fallback to Selenium
     try:
-        print("     ↪ Falling back to Selenium...")
+        print("Falling back to Selenium...")
         driver.get(url)
         if wait_for_selector:
             WebDriverWait(driver, 10).until(
@@ -70,7 +70,7 @@ def fetch_page_with_fallback(url, wait_for_selector=None):
             )
         return BeautifulSoup(driver.page_source, "html.parser")
     except Exception as se:
-        print(f"      Selenium failed: {se}")
+        print(f"Selenium failed: {se}")
         return None
 
 def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
@@ -104,7 +104,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
                 print(f"\n Processing listing {i + 1}/{len(cards)} — ID: {listing_id}")
 
                 if listing_exists_by_listing_id(listing_id):
-                    print("   ↪ Already seen this listing_id, skipping detail scrape.")
+                    print("Already seen this listing_id, skipping detail scrape.")
                     continue
 
                 relative_url = card.select_one("a.image-gallery-link")["href"]
@@ -112,7 +112,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
                 detail_data = scrape_detail_page(detail_url)
                 vin = detail_data.get("vin")
                 if not vin or vin in seen_vins:
-                    print("   ↪ VIN not found or already processed.")
+                    print("VIN not found or already processed.")
                     continue
 
                 title = card.select_one("h2.title").text.strip()
@@ -184,7 +184,7 @@ def scrape_detail_page(url):
         mileage = mileage_and_vin[0]
         vin = mileage_and_vin[1]
 
-        print(f"   ↪ Extracted VIN: {vin}, Days on market: {days_on_market}, Mileage: {mileage}")
+        print(f"Extracted VIN: {vin}, Days on market: {days_on_market}, Mileage: {mileage}")
         return {"vin": vin, "days_on_market": days_on_market, "mileage": mileage}
 
     except Exception as e:

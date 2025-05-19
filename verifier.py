@@ -86,7 +86,7 @@ def verify_active_listings():
     """, (today,))
     rows = cur.fetchall()
 
-    print(f"🔎 Verifying {len(rows)} listings...")
+    print(f"Verifying {len(rows)} listings...")
 
     ua = UserAgent()
     retry_list = []
@@ -137,7 +137,7 @@ def verify_active_listings():
         eta_seconds = int(avg_time * remaining)
         eta_min = eta_seconds // 60
         eta_sec = eta_seconds % 60
-        print(f"⏳ Estimated time remaining: {eta_min}m {eta_sec}s")
+        print(f"Estimated time remaining: {eta_min}m {eta_sec}s")
 
     conn.close()
 
@@ -148,7 +148,7 @@ def verify_active_listings():
 
     new_valid_user_agents = used_user_agents - failed_user_agents
     if new_valid_user_agents:
-        print("\n Valid User-Agents (used successfully without failure):")
+        print("Valid User-Agents (used successfully without failure):")
         with open(VALID_UA_LOG, "a", encoding="utf-8") as f:
             for agent in new_valid_user_agents:
                 print(f" - {agent}")

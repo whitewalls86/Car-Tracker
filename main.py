@@ -29,15 +29,9 @@ def main():
 
     # Update the listings marked as active, and check on current status
 
-    # verify_active_listings()
-
     refresh_cleaned_listings()
 
     verify_active_listings()
-
-    print(" Launching dashboard...")
-    subprocess.run(["streamlit", "run", "dashboard.py"])
-
 
 
 
