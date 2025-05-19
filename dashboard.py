@@ -65,8 +65,9 @@ price_drops['alert_type'] = "price drop"
 alerts_dropped = price_drops[price_drops['discount'] > 1.1 * price_drops['avg_discount']]
 
 alerts_combined = pd.concat([alerts_new, alerts_dropped], ignore_index=True).drop_duplicates('vin')
-alerts_combined['has_true_values'] = alerts_combined.apply(
-    lambda row: row['price'] == row['implied_msrp'] if pd.notnull(row['price']) and pd.notnull(row['implied_msrp']) else False, axis=1
+alerts_combined.apply(
+    lambda row: pd.notnull(row['price']) and pd.notnull(row['msrp']),
+    axis=1
 )
 
 # Add filter to show only listings with true values
