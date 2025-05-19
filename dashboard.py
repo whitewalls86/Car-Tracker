@@ -33,7 +33,8 @@ prev_prices = price_history.groupby("vin").nth(-2).reset_index()
 price_drops = latest_prices.merge(prev_prices, on="vin", suffixes=("_latest", "_prev"))
 price_drops = price_drops[price_drops['price_latest'] < price_drops['price_prev']]
 price_drops = price_drops.merge(
-    df[['vin', 'year', 'make', 'model', 'trim', 'price', 'discount', 'discount_rate', 'dealer', 'location', 'implied_msrp']],
+    df[['vin', 'year', 'make', 'model', 'trim', 'price', 'discount', 'discount_rate', 'dealer', 'location',
+        'implied_msrp', 'msrp']],
     on="vin", how="left"
 )
 
@@ -65,10 +66,11 @@ price_drops['alert_type'] = "price drop"
 alerts_dropped = price_drops[price_drops['discount'] > 1.1 * price_drops['avg_discount']]
 
 alerts_combined = pd.concat([alerts_new, alerts_dropped], ignore_index=True).drop_duplicates('vin')
-alerts_combined.apply(
+alerts_combined['has_true_values'] = alerts_combined.apply(
     lambda row: pd.notnull(row['price']) and pd.notnull(row['msrp']),
     axis=1
 )
+
 
 # Add filter to show only listings with true values
 filter_true_values = st.checkbox("Show only listings with actual MSRP and price", value=False)
