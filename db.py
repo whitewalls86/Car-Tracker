@@ -2,9 +2,12 @@ import os
 import sqlite3
 from datetime import date
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
+
 def init_db():
     os.makedirs("data", exist_ok=True)
-    with sqlite3.connect("data/cars.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
 
         # Main listings table using VIN as the unique identifier
@@ -46,21 +49,21 @@ def init_db():
 
 
 def listing_exists_by_vin(vin):
-    with sqlite3.connect("data/cars.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM listings WHERE vin = ?", (vin,))
         return cur.fetchone() is not None
 
 
 def listing_exists_by_listing_id(listing_id):
-    with sqlite3.connect("data/cars.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM listings WHERE listing_id = ?", (listing_id,))
         return cur.fetchone() is not None
 
 
 def save_or_update_listing(data):
-    with sqlite3.connect("data/cars.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
 
         # Insert or ignore listing
@@ -96,7 +99,7 @@ def save_or_update_listing(data):
 
 
 def log_price(vin, price):
-    with sqlite3.connect("data/cars.db") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         # Check if a price already exists today for this VIN
         cur.execute("""
@@ -109,7 +112,7 @@ def log_price(vin, price):
             """, (vin, date.today(), price))
             conn.commit()
 
-def refresh_cleaned_listings(db_path="data/cars.db"):
+def refresh_cleaned_listings(db_path=DB_PATH):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
