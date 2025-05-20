@@ -12,18 +12,19 @@ def main():
     models = SEARCH_CONFIG["models"]
     seen_vins = set()
 
-    all_makes = [entry["make"] for entry in models]
-    all_models = [entry["model"] for entry in models]
+    print(f"\n Starting scrape by model:")
 
-    print(f"\n Starting scrape for: {', '.join(all_makes)}")
+    for entry in models:
+        make = entry["make"]
+        model = entry["model"]
 
-    # Local Search First
-    local_vins = scrape_main_results(all_makes, all_models, "local", seen_vins, zip_code, radius)
-    seen_vins.update(local_vins)
+        print(f"\n🔍 Scraping: {make} {model} (local)")
+        local_vins = scrape_main_results([make], [model], "local", seen_vins, zip_code, radius)
+        seen_vins.update(local_vins)
 
-    # Then National Search, skipping VINs already seen locally
-    national_vins = scrape_main_results(all_makes, all_models, "national", seen_vins, zip_code, radius)
-    seen_vins.update(national_vins)
+        print(f"🔍 Scraping: {make} {model} (national)")
+        national_vins = scrape_main_results([make], [model], "national", seen_vins, zip_code, radius)
+        seen_vins.update(national_vins)
 
     print(f"\n Finished scraping {len(seen_vins)} unique VINs")
 
