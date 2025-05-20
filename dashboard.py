@@ -3,8 +3,10 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date, timedelta
+import os
 
-DB_PATH = "data/cars.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
 
 st.set_page_config(layout="wide")
 st.title("🚘 Car Market Summary Dashboard")
