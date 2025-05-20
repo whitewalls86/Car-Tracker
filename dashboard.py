@@ -4,6 +4,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date, timedelta
 import os
+from data import *
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
