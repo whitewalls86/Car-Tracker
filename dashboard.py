@@ -41,11 +41,16 @@ yesterday = today - timedelta(days=1)
 models = sorted(df['model'].dropna().unique())
 selected_models = st.multiselect("Select Models", models, default=models[:4])
 scopes = st.radio("Select Scope", ["all", "local", "national"], horizontal=True)
+available_years = sorted(df['year'].dropna().unique())
+selected_years = st.multiselect("Select Year(s)", available_years, default=available_years)
 
 if selected_models:
     df = df[df['model'].isin(selected_models)]
 if scopes != "all":
     df = df[df['search_scope'] == scopes]
+if selected_years:
+    df = df[df['year'].isin(selected_years)]
+
 
 st.header("🚨 Well-Priced New or Recently Discounted Vehicles")
 reference_discounts = df.groupby(['year', 'model', 'trim'])['discount'].mean().reset_index().rename(columns={'discount': 'avg_discount'})
