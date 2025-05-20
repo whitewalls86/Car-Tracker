@@ -76,14 +76,19 @@ def fetch_with_retries(url, user_agent, max_retries=3):
                     return None
 
 def verify_active_listings():
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
+
     today = date.today()
-    conn = sqlite3.connect("data/cars.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
+    print(DB_PATH)
+
     cur.execute("""
-        SELECT vin, url FROM listings
-        WHERE status = 'active' AND last_seen < ?
-    """, (today,))
+           SELECT vin, url FROM listings
+           WHERE status = 'active' AND last_seen < ?
+       """, (today,))
     rows = cur.fetchall()
 
     print(f"Verifying {len(rows)} listings...")
