@@ -154,18 +154,27 @@ styled_summary = summary.style.format({
 
 st.dataframe(styled_summary)
 
+
 st.header("📉 Removal Ratio")
 active_cutoff = pd.to_datetime(df['last_seen'].max())
 vin_seen = df.groupby(['vin'])['last_seen'].max().reset_index()
 vin_seen['days_since_seen'] = (active_cutoff - vin_seen['last_seen']).dt.days
 vin_seen['status'] = vin_seen['days_since_seen'].apply(lambda x: 'removed' if x > 1 else 'active')
-vin_seen = vin_seen.merge(df[['vin', 'model', 'trim']].drop_duplicates(), on='vin', how='left')
+vin_seen = vin_seen.merge(df[['vin', 'model', 'trim', 'year', 'first_seen']].drop_duplicates(), on='vin', how='left')
 
-removal_ratio = vin_seen.groupby(['model', 'trim', 'status'])['vin'].count().unstack(fill_value=0)
-removal_ratio['removed_ratio'] = removal_ratio['removed'] / (removal_ratio['removed'] + removal_ratio['active'])
+# Count listings added today
+vin_seen['added_today'] = vin_seen['first_seen'].dt.date == today.date()
+
+# Group and calculate ratios
+removal_ratio = vin_seen.groupby(['year', 'model', 'trim', 'status'])['vin'].count().unstack(fill_value=0)
+removal_ratio['added_today'] = vin_seen[vin_seen['added_today']].groupby(['year', 'model', 'trim'])['vin'].count()
+removal_ratio['added_today'] = removal_ratio['added_today'].fillna(0).astype(int)
+removal_ratio['removed_ratio'] = removal_ratio['removed'] / removal_ratio['active'].replace(0, 1)
+removal_ratio['net_ratio'] = removal_ratio['added_today'] / removal_ratio['removed'].replace(0, 1)
 
 styled_removal = removal_ratio.reset_index().style.format({
-    'removed_ratio': '{:.0%}'
+    'removed_ratio': '{:.0%}',
+    'net_ratio': '{:.2f}'
 })
 
 st.dataframe(styled_removal)
