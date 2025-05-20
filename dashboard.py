@@ -5,27 +5,21 @@ import matplotlib.pyplot as plt
 from datetime import date, timedelta
 import os
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
 
 st.set_page_config(layout="wide")
 st.title("🚘 Car Market Summary Dashboard")
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_cleaned():
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM cleaned_listings", conn, parse_dates=['first_seen', 'last_seen'])
     conn.close()
     return df
 
-
-if st.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-
 df = load_cleaned()
 
-# Load price history for price drop alerts
 conn = sqlite3.connect(DB_PATH)
 price_history = pd.read_sql_query("SELECT * FROM price_history", conn, parse_dates=['date'])
 conn.close()
@@ -41,11 +35,9 @@ price_drops = price_drops.merge(
     on="vin", how="left"
 )
 
-# Alerts
 today = pd.to_datetime(date.today())
 yesterday = today - timedelta(days=1)
 
-# Filters
 models = sorted(df['model'].dropna().unique())
 selected_models = st.multiselect("Select Models", models, default=models[:4])
 scopes = st.radio("Select Scope", ["all", "local", "national"], horizontal=True)
@@ -55,7 +47,6 @@ if selected_models:
 if scopes != "all":
     df = df[df['search_scope'] == scopes]
 
-# 🚨 Alert: Well-priced new or discounted vehicles
 st.header("🚨 Well-Priced New or Recently Discounted Vehicles")
 reference_discounts = df.groupby(['year', 'model', 'trim'])['discount'].mean().reset_index().rename(columns={'discount': 'avg_discount'})
 
@@ -74,38 +65,40 @@ alerts_combined['has_true_values'] = alerts_combined.apply(
     axis=1
 )
 
-
-# Add filter to show only listings with true values
 filter_true_values = st.checkbox("Show only listings with actual MSRP and price", value=False)
 if filter_true_values:
     alerts_combined = alerts_combined[alerts_combined['has_true_values']]
 
-alerts_combined_display = alerts_combined[['vin', 'year', 'make', 'model', 'trim', 'price', 'implied_msrp', 'discount', 'discount_rate', 'avg_discount', 'dealer', 'location', 'alert_type', 'has_true_values']].copy()
+alerts_display = alerts_combined[['vin', 'year', 'make', 'model', 'trim', 'price', 'implied_msrp', 'discount', 'discount_rate', 'avg_discount', 'dealer', 'location', 'alert_type', 'has_true_values']].copy()
 
-# Format currency and percent fields
-for col in ['price', 'implied_msrp', 'discount', 'avg_discount']:
-    alerts_combined_display[col] = alerts_combined_display[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-alerts_combined_display['discount_rate'] = alerts_combined_display['discount_rate'].apply(lambda x: f"{x:.0%}" if pd.notnull(x) else "")
+styled_alerts = alerts_display.style.format({
+    'price': '${:,.0f}',
+    'implied_msrp': '${:,.0f}',
+    'discount': '${:,.0f}',
+    'avg_discount': '${:,.0f}',
+    'discount_rate': '{:.0%}'
+})
 
-st.dataframe(alerts_combined_display)
+st.dataframe(styled_alerts)
 
-# Sold yesterday
 st.header("📤 Vehicles Sold Yesterday")
 vin_status = df.groupby(['vin'])['last_seen'].max().reset_index()
 vin_status['days_since_seen'] = (today - vin_status['last_seen']).dt.days
 sold_yesterday = vin_status[vin_status['last_seen'].dt.date == yesterday.date()]
-
 sold_info = sold_yesterday.merge(df[['vin', 'model', 'trim', 'price', 'discount']], on='vin', how='left')
 sold_summary = sold_info.groupby(['model', 'trim']).agg(
     vehicles_sold=('vin', 'count'),
     avg_discount=('discount', 'mean'),
     avg_price=('price', 'mean')
 ).reset_index()
-sold_summary['avg_discount'] = sold_summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-sold_summary['avg_price'] = sold_summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-st.dataframe(sold_summary)
 
-# Added today
+styled_sold = sold_summary.style.format({
+    'avg_discount': '${:,.0f}',
+    'avg_price': '${:,.0f}'
+})
+
+st.dataframe(styled_sold)
+
 st.header("📥 Vehicles Added Today")
 added_today = df[df['first_seen'].dt.date == today.date()]
 added_summary = added_today.groupby(['model', 'trim']).agg(
@@ -113,11 +106,14 @@ added_summary = added_today.groupby(['model', 'trim']).agg(
     avg_discount=('discount', 'mean'),
     avg_price=('price', 'mean')
 ).reset_index()
-added_summary['avg_discount'] = added_summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-added_summary['avg_price'] = added_summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-st.dataframe(added_summary)
 
-# Discount summary for 2025
+styled_added = added_summary.style.format({
+    'avg_discount': '${:,.0f}',
+    'avg_price': '${:,.0f}'
+})
+
+st.dataframe(styled_added)
+
 st.header("💰 Discount Summary for 2025 Vehicles")
 df_2025 = df[df['year'] == '2025']
 summary_2025 = df_2025.groupby(['model', 'trim']).agg(
@@ -126,11 +122,14 @@ summary_2025 = df_2025.groupby(['model', 'trim']).agg(
     avg_implied_days=('implied_days_on_market', 'mean'),
     avg_actual_days=('days_on_market', 'mean')
 ).reset_index()
-summary_2025['avg_discount'] = summary_2025['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-summary_2025['avg_price'] = summary_2025['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-st.dataframe(summary_2025)
 
-# Summary Grouping
+styled_2025 = summary_2025.style.format({
+    'avg_discount': '${:,.0f}',
+    'avg_price': '${:,.0f}'
+})
+
+st.dataframe(styled_2025)
+
 st.header("📊 Summary by Model / Trim")
 grouped = df.groupby(['year', 'make', 'model', 'trim'])
 summary = grouped.agg({
@@ -146,12 +145,15 @@ summary = grouped.agg({
     'discount': 'avg_discount',
     'discount_rate': 'avg_discount_rate'
 })
-summary['avg_discount'] = summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-summary['avg_price'] = summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
-summary['avg_discount_rate'] = summary['avg_discount_rate'].apply(lambda x: f"{x:.0%}" if pd.notnull(x) else "")
-st.dataframe(summary.sort_values("avg_days_on_lot"))
 
-# Removed Listings Ratio
+styled_summary = summary.style.format({
+    'avg_discount': '${:,.0f}',
+    'avg_price': '${:,.0f}',
+    'avg_discount_rate': '{:.0%}'
+})
+
+st.dataframe(styled_summary)
+
 st.header("📉 Removal Ratio")
 active_cutoff = pd.to_datetime(df['last_seen'].max())
 vin_seen = df.groupby(['vin'])['last_seen'].max().reset_index()
@@ -161,10 +163,13 @@ vin_seen = vin_seen.merge(df[['vin', 'model', 'trim']].drop_duplicates(), on='vi
 
 removal_ratio = vin_seen.groupby(['model', 'trim', 'status'])['vin'].count().unstack(fill_value=0)
 removal_ratio['removed_ratio'] = removal_ratio['removed'] / (removal_ratio['removed'] + removal_ratio['active'])
-removal_ratio['removed_ratio'] = removal_ratio['removed_ratio'].apply(lambda x: f"{x:.0%}" if pd.notnull(x) else "")
-st.dataframe(removal_ratio.reset_index()[['model', 'trim', 'removed_ratio']])
 
-# Price Trends
+styled_removal = removal_ratio.reset_index().style.format({
+    'removed_ratio': '{:.0%}'
+})
+
+st.dataframe(styled_removal)
+
 st.header("📈 Price Trend Over Time")
 trend_data = price_history.merge(df[['vin', 'model', 'trim']], on='vin', how='inner')
 trend_data = trend_data.groupby(['date', 'model', 'trim'])['price'].mean().reset_index()
