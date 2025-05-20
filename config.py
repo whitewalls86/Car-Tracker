@@ -9,7 +9,7 @@ SEARCH_CONFIG = {
     "shipping_cost_per_mile": 0.70,
 
     # Number of search result pages to scrape
-    "pages": 5,
+    "pages": 20,
 
     # Number of listings per page
     "page_size": 100,
