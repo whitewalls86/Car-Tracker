@@ -18,10 +18,6 @@ def load_cleaned():
 
 df = load_cleaned()
 
-# Use implied_msrp for discount-related summaries
-df['discount'] = df['implied_msrp'] - df['price']
-df['discount_rate'] = (df['implied_msrp'] - df['price']) / df['implied_msrp']
-
 # Load price history for price drop alerts
 conn = sqlite3.connect(DB_PATH)
 price_history = pd.read_sql_query("SELECT * FROM price_history", conn, parse_dates=['date'])
@@ -44,7 +40,7 @@ yesterday = today - timedelta(days=1)
 
 # Filters
 models = sorted(df['model'].dropna().unique())
-selected_models = st.multiselect("Select Models", models, default=models[:3])
+selected_models = st.multiselect("Select Models", models, default=models[:4])
 scopes = st.radio("Select Scope", ["all", "local", "national"], horizontal=True)
 
 if selected_models:
@@ -92,12 +88,14 @@ vin_status = df.groupby(['vin'])['last_seen'].max().reset_index()
 vin_status['days_since_seen'] = (today - vin_status['last_seen']).dt.days
 sold_yesterday = vin_status[vin_status['last_seen'].dt.date == yesterday.date()]
 
-sold_info = sold_yesterday.merge(df[['vin', 'model', 'trim', 'discount']], on='vin', how='left')
+sold_info = sold_yesterday.merge(df[['vin', 'model', 'trim', 'price', 'discount']], on='vin', how='left')
 sold_summary = sold_info.groupby(['model', 'trim']).agg(
     vehicles_sold=('vin', 'count'),
-    avg_discount=('discount', 'mean')
+    avg_discount=('discount', 'mean'),
+    avg_price=('price', 'mean')
 ).reset_index()
 sold_summary['avg_discount'] = sold_summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+sold_summary['avg_price'] = sold_summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
 st.dataframe(sold_summary)
 
 # Added today
@@ -105,20 +103,24 @@ st.header("📥 Vehicles Added Today")
 added_today = df[df['first_seen'].dt.date == today.date()]
 added_summary = added_today.groupby(['model', 'trim']).agg(
     vehicles_added=('vin', 'count'),
-    avg_discount=('discount', 'mean')
+    avg_discount=('discount', 'mean'),
+    avg_price=('price', 'mean')
 ).reset_index()
 added_summary['avg_discount'] = added_summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+added_summary['avg_price'] = added_summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
 st.dataframe(added_summary)
 
 # Discount summary for 2025
 st.header("💰 Discount Summary for 2025 Vehicles")
 df_2025 = df[df['year'] == '2025']
 summary_2025 = df_2025.groupby(['model', 'trim']).agg(
+    avg_price=('price', 'mean'),
     avg_discount=('discount', 'mean'),
     avg_implied_days=('implied_days_on_market', 'mean'),
     avg_actual_days=('days_on_market', 'mean')
 ).reset_index()
 summary_2025['avg_discount'] = summary_2025['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+summary_2025['avg_price'] = summary_2025['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
 st.dataframe(summary_2025)
 
 # Summary Grouping
@@ -127,15 +129,18 @@ grouped = df.groupby(['year', 'make', 'model', 'trim'])
 summary = grouped.agg({
     'vin': 'nunique',
     'calculated_days_on_market': 'mean',
+    'price': 'mean',
     'discount': 'mean',
     'discount_rate': 'mean'
 }).reset_index().rename(columns={
     'vin': 'vehicles_seen',
     'calculated_days_on_market': 'avg_days_on_lot',
+    'price': 'avg_price',
     'discount': 'avg_discount',
     'discount_rate': 'avg_discount_rate'
 })
 summary['avg_discount'] = summary['avg_discount'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
+summary['avg_price'] = summary['avg_price'].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "")
 summary['avg_discount_rate'] = summary['avg_discount_rate'].apply(lambda x: f"{x:.0%}" if pd.notnull(x) else "")
 st.dataframe(summary.sort_values("avg_days_on_lot"))
 
