@@ -4,7 +4,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import date, timedelta
 import os
-from data import *
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
@@ -18,6 +18,10 @@ def load_cleaned():
     df = pd.read_sql_query("SELECT * FROM cleaned_listings", conn, parse_dates=['first_seen', 'last_seen'])
     conn.close()
     return df
+
+
+if st.button("🔄 Refresh Data"):
+    st.cache_data.clear()
 
 df = load_cleaned()
 
