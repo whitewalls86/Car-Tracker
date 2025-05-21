@@ -22,21 +22,25 @@ def main():
     print(f"\n Starting scrape by model:")
 
     for entry in models:
+        model_start_time = time.time()
         make = entry["make"]
         model = entry["model"]
 
-        print(f"\n🔍 Scraping: {make} {model} (local)")
-        local_vins = scrape_main_results([make], [model], "local", seen_vins, zip_code, radius)
+        local_vins = scrape_main_results(
+            [make], [model], "local", seen_vins, zip_code, radius)
         seen_vins.update(local_vins)
+        print()  # newline after local
 
-        print(f"🔍 Scraping: {make} {model} (national)")
+        # Scrape national with timer feedback
         national_vins = scrape_main_results([make], [model], "national", seen_vins, zip_code, radius)
-        seen_vins.update(national_vins)
 
         total_new = len(local_vins) + len(national_vins)
         new_vins_by_model[f"{make} {model}"] = total_new
 
-    print(f"\n Finished scraping {len(seen_vins)} unique VINs")
+        print(f"\n Finished scraping {model}, {len(seen_vins)} unique VINs")
+        elapsed = time.time() - model_start_time
+        mins, secs = divmod(int(elapsed), 60)
+        print(f"⏱️ Model run time: {mins}m {secs}s")
 
     refresh_cleaned_listings()
     verify_active_listings()

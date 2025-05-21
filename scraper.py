@@ -30,7 +30,6 @@ PAGE_SIZE = SEARCH_CONFIG.get("page_size", 20)
 MAX_PAGES = SEARCH_CONFIG.get("pages", 5)
 VALID_UA_LOG = "valid_user_agents.txt"
 
-# Load valid user agents from file
 valid_user_agents = []
 if os.path.exists(VALID_UA_LOG):
     with open(VALID_UA_LOG, "r", encoding="utf-8") as f:
@@ -38,43 +37,40 @@ if os.path.exists(VALID_UA_LOG):
 
 ua = UserAgent()
 
+
 def fetch_page_with_fallback(url, wait_for_selector=None):
     user_agents_to_try = valid_user_agents.copy() or [ua.random for _ in range(3)]
     for ua_string in user_agents_to_try:
         try:
             headers = {"User-Agent": ua_string}
-            print(f"Trying UA: {ua_string[:50]}...")
             res = requests.get(url, headers=headers, timeout=5)
             if res.status_code == 200:
                 return BeautifulSoup(res.text, "html.parser")
-        except Exception as e:
-            print(f"UA failed: {ua_string[:30]} — {e}")
+        except Exception:
+            continue
 
-    # Fall back to cloudscraper
     try:
-        print("Falling back to cloudscraper...")
         scraper = cloudscraper.create_scraper()
         res = scraper.get(url, timeout=10)
         if res.status_code == 200:
             return BeautifulSoup(res.text, "html.parser")
-    except Exception as ce:
-        print(f"Cloudscraper failed: {ce}")
+    except Exception:
+        pass
 
-    # Final fallback to Selenium
     try:
-        print("Falling back to Selenium...")
         driver.get(url)
         if wait_for_selector:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, wait_for_selector))
             )
         return BeautifulSoup(driver.page_source, "html.parser")
-    except Exception as se:
-        print(f"Selenium failed: {se}")
+    except Exception:
         return None
+
 
 def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
     seen_today = []
+    start_time = time.time()
 
     for page_num in range(1, MAX_PAGES + 1):
         params = {
@@ -88,23 +84,17 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
         }
 
         full_url = BASE_URL + "?" + urlencode(params, doseq=True)
-        print(f" [{scope.upper()}] Page {page_num}: {full_url}")
-
         soup = fetch_page_with_fallback(full_url, wait_for_selector="div.vehicle-card")
         if not soup:
             print(f" Error on page {page_num}: unable to fetch page.")
             continue
 
         cards = soup.select("div.vehicle-card")
-        print(f" Found {len(cards)} vehicle cards")
 
         for i, card in enumerate(cards):
             try:
                 listing_id = card.get("data-listing-id")
-                print(f"\n Processing listing {i + 1}/{len(cards)} — ID: {listing_id}")
-
                 if listing_exists_by_listing_id(listing_id):
-                    print("Already seen this listing_id, skipping detail scrape.")
                     continue
 
                 relative_url = card.select_one("a.image-gallery-link")["href"]
@@ -112,7 +102,6 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
                 detail_data = scrape_detail_page(detail_url)
                 vin = detail_data.get("vin")
                 if not vin or vin in seen_vins:
-                    print("VIN not found or already processed.")
                     continue
 
                 title = card.select_one("h2.title").text.strip()
@@ -120,9 +109,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
                 price = int(price_el.text.strip().replace("$", "").replace(",", "")) if price_el and "$" in price_el.text else None
 
                 msrp_el = card.select_one("span.secondary-price")
-                msrp = None
-                if msrp_el and "MSRP" in msrp_el.text:
-                    msrp = int(msrp_el.text.strip().replace("MSRP", "").replace("$", "").replace(",", "").strip())
+                msrp = int(msrp_el.text.strip().replace("MSRP", "").replace("$", "").replace(",", "").strip()) if msrp_el and "MSRP" in msrp_el.text else None
 
                 dealer = card.select_one("div.dealer-name strong").text.strip()
                 location = card.select_one("div.miles-from").text.strip()
@@ -157,18 +144,20 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
                 save_or_update_listing(listing)
                 log_price(vin, price)
-                print(f"    Saved {vin} | ${price} | {dealer}")
                 seen_today.append(vin)
 
             except Exception as e:
                 print(f" Error parsing card: {e}")
 
+            elapsed = int(time.time() - start_time)
+            print(f"\r🔄 {scope.title()} page {page_num}/{MAX_PAGES} | {i + 1}/{len(cards)} cards | Elapsed: {elapsed}s", end="", flush=True)
+
+    print()  # newline after loop
     return seen_today
 
 
 def scrape_detail_page(url):
     try:
-        print(f"   Loading detail page: {url}")
         time.sleep(random.uniform(2.0, 4.0))
         soup = fetch_page_with_fallback(url, wait_for_selector="div.vin")
         if not soup:
@@ -180,16 +169,13 @@ def scrape_detail_page(url):
         listed_time_tag = soup.select_one('div.price-history-summary div.listed-time strong')
         days_on_market = int(listed_time_tag.text.strip()) if listed_time_tag else None
 
-        mileage_and_vin = extract_mileage_and_vin(soup)
-        mileage = mileage_and_vin[0]
-        vin = mileage_and_vin[1]
-
-        print(f"Extracted VIN: {vin}, Days on market: {days_on_market}, Mileage: {mileage}")
+        mileage, vin = extract_mileage_and_vin(soup)
         return {"vin": vin, "days_on_market": days_on_market, "mileage": mileage}
 
     except Exception as e:
         print(f"[detail scrape error] {url} — {e}")
         return {"vin": None, "days_on_market": None, "mileage": None}
+
 
 def extract_mileage_and_vin(soup):
     mileage = None
@@ -206,7 +192,4 @@ def extract_mileage_and_vin(soup):
             dd = dt.find_next_sibling("dd")
             if dd:
                 vin = dd.text.strip()
-
-    if mileage is not None or vin is not None:
-        return mileage, vin
-    return None
+    return mileage, vin

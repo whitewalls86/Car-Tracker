@@ -23,6 +23,8 @@ SEARCH_CONFIG = {
         {"make": "mazda", "model": "mazda-cx_50_hybrid"},
         {"make": "subaru", "model": "subaru-forester_hybrid"},
         {"make": "kia", "model": "kia-sportage_hybrid"},
+        {"make": "ford", "model": "ford-escape_phev"},
+        {"make": "ford", "model": "ford-escape"},
     ],
 
     # Priority: local listings are processed first; national listings skip VINs already seen locally

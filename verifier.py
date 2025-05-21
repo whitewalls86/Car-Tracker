@@ -13,7 +13,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 import cloudscraper
 import os
 
-
 failed_user_agents = set()
 used_user_agents = set()
 valid_user_agents = set()
@@ -21,15 +20,18 @@ FAILED_UA_LOG = "failed_user_agents.log"
 SUCCESS_UA_LOG = "successful_user_agents.log"
 VALID_UA_LOG = "valid_user_agents.txt"
 
+
 def check_listing_still_active(soup):
     unlisted_notice = soup.select_one("spark-notification.unlisted-notification[open]")
     return unlisted_notice is None
+
 
 def extract_price(soup):
     price_el = soup.select_one("span.primary-price")
     if price_el and "$" in price_el.text:
         return int(price_el.text.strip().replace("$", "").replace(",", ""))
     return None
+
 
 def fetch_with_selenium(url):
     options = Options()
@@ -43,9 +45,11 @@ def fetch_with_selenium(url):
     driver.quit()
     return BeautifulSoup(html, "html.parser")
 
+
 def log_user_agent(ua_string, log_file):
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(ua_string + "\n")
+
 
 def fetch_with_retries(url, user_agent, max_retries=3):
     for attempt in range(max_retries):
@@ -63,17 +67,15 @@ def fetch_with_retries(url, user_agent, max_retries=3):
             failed_user_agents.add(ua_string)
             log_user_agent(ua_string, FAILED_UA_LOG)
             if attempt < max_retries - 1:
-                print(f" Retry {attempt + 1} for {url} with new User-Agent")
                 time.sleep(random.uniform(0.5, 1.0))
             else:
-                print(f"️ Requests failed for {url}, trying cloudscraper")
                 try:
                     scraper = cloudscraper.create_scraper()
                     res = scraper.get(url, timeout=10)
                     return BeautifulSoup(res.text, "html.parser")
-                except Exception as cs_e:
-                    print(f" cloudscraper failed for {url}: {cs_e}")
+                except Exception:
                     return None
+
 
 def verify_active_listings():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -83,12 +85,10 @@ def verify_active_listings():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
-    print(DB_PATH)
-
     cur.execute("""
-           SELECT vin, url FROM listings
-           WHERE status = 'active' AND last_seen < ?
-       """, (today,))
+        SELECT vin, url FROM listings
+        WHERE status = 'active' AND last_seen < ?
+    """, (today,))
     rows = cur.fetchall()
 
     print(f"Verifying {len(rows)} listings...")
@@ -97,20 +97,17 @@ def verify_active_listings():
     retry_list = []
     start_time = datetime.now()
 
-    # Load known valid UAs from file
     if os.path.exists(VALID_UA_LOG):
         with open(VALID_UA_LOG, "r", encoding="utf-8") as f:
             valid_user_agents.update(line.strip() for line in f if line.strip())
 
+    total = len(rows)
     for i, (vin, url) in enumerate(rows, 1):
-        listing_start = datetime.now()
-
         soup = fetch_with_retries(url, ua)
         if soup is None:
             try:
                 soup = fetch_with_selenium(url)
-            except Exception as se:
-                print(f" Selenium failed for {vin}: {se}")
+            except Exception:
                 retry_list.append((vin, url))
                 continue
 
@@ -118,32 +115,28 @@ def verify_active_listings():
             if check_listing_still_active(soup):
                 price = extract_price(soup)
                 if price:
-                    print(f" VIN {vin} — active, new price: ${price}")
                     cur.execute("UPDATE listings SET price = ?, last_seen = ? WHERE vin = ?", (price, today, vin))
                     cur.execute("INSERT INTO price_history (vin, date, price) VALUES (?, ?, ?)", (vin, today, price))
                 else:
-                    print(f" VIN {vin} — active, price not found")
                     cur.execute("UPDATE listings SET last_seen = ? WHERE vin = ?", (today, vin))
             else:
-                print(f" VIN {vin} — listing removed")
                 cur.execute("UPDATE listings SET status = 'inactive' WHERE vin = ?", (vin,))
 
             conn.commit()
-            time.sleep(random.uniform(0.5, 1.5))
-
-        except Exception as e:
-            print(f" Error processing {vin}: {e}")
+        except Exception:
             retry_list.append((vin, url))
 
-        # ETA Calculation
+        # In-place progress update
         elapsed = (datetime.now() - start_time).total_seconds()
-        avg_time = elapsed / i
-        remaining = len(rows) - i
-        eta_seconds = int(avg_time * remaining)
-        eta_min = eta_seconds // 60
-        eta_sec = eta_seconds % 60
-        print(f"Estimated time remaining: {eta_min}m {eta_sec}s")
+        percent = (i / total) * 100
+        est_total = elapsed / i * total if i > 0 else 0
+        remaining = max(0, est_total - elapsed)
+        eta_min, eta_sec = divmod(int(remaining), 60)
+        print(f"\r✔️ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {int(elapsed)}s | ETA: {eta_min}m {eta_sec}s", end="", flush=True)
 
+        time.sleep(random.uniform(0.5, 1.5))
+
+    print()  # Final newline after in-place updates
     conn.close()
 
     if retry_list:
