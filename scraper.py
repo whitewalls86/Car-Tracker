@@ -190,7 +190,9 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
     db_thread = threading.Thread(target=db_writer, daemon=True)
     db_thread.start()
 
-    for page_num in range(1, MAX_PAGES + 1):
+    card_queue = Queue()
+
+    def page_loader(page_num):
         params = {
             "makes[]": makes,
             "models[]": models,
@@ -200,23 +202,42 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             "page_size": PAGE_SIZE,
             "maximum_distance": radius if scope == "local" else "all"
         }
-
         full_url = BASE_URL + "?" + urlencode(params, doseq=True)
         soup = fetch_page_with_fallback(full_url, wait_for_selector="div.vehicle-card")
         if not soup:
-            print(f"\n Error on page {page_num}: unable to fetch page.")
-            continue
-
+            print(f" Error on page {page_num}: unable to fetch page.")
+            return
         cards = soup.select("div.vehicle-card")
+        for card in cards:
+            card_queue.put(card)
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(process_card, card, models, scope, seen_vins, start_time) for card in cards]
-            for i, future in enumerate(as_completed(futures), 1):
-                vin = future.result()
-                if vin:
-                    seen_today.append(vin)
-                elapsed = int(time.time() - start_time)
-                print(f"\r {models}-{scope} page {page_num}/{MAX_PAGES} | {i}/{len(cards)} cards | Elapsed: {elapsed}s", end="", flush=True)
+    def card_worker():
+        while True:
+            try:
+                card = card_queue.get(timeout=5)
+            except:
+                return
+            vin = process_card(card, models, scope, seen_vins, start_time)
+            if vin:
+                seen_today.append(vin)
+            elapsed = int(time.time() - start_time)
+            print(f"\r {models}-{scope} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
+            card_queue.task_done()
+
+    # Start page loader threads
+    with ThreadPoolExecutor(max_workers=5) as page_executor:
+        page_executor.map(page_loader, range(1, MAX_PAGES + 1))
+
+    # Start card processor threads
+    workers = []
+    for _ in range(10):
+        t = threading.Thread(target=card_worker)
+        t.start()
+        workers.append(t)
+
+    card_queue.join()
+    for t in workers:
+        t.join()
 
     db_queue.join()
     db_queue.put(None)
