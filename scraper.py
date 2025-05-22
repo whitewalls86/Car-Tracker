@@ -93,6 +93,11 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
         for i, card in enumerate(cards):
             try:
+                elapsed = int(time.time() - start_time)
+                print(
+                    f"\r🔄 {models}-{scope} page {page_num}/{MAX_PAGES} | {i + 1}/{len(cards)} cards | Elapsed: {elapsed}s",
+                    end="", flush=True)
+
                 listing_id = card.get("data-listing-id")
                 if listing_exists_by_listing_id(listing_id):
                     continue
@@ -148,9 +153,6 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
             except Exception as e:
                 print(f" Error parsing card: {e}")
-
-            elapsed = int(time.time() - start_time)
-            print(f"\r🔄 {scope.title()} page {page_num}/{MAX_PAGES} | {i + 1}/{len(cards)} cards | Elapsed: {elapsed}s", end="", flush=True)
 
     print()  # newline after loop
     return seen_today
