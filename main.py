@@ -38,24 +38,24 @@ def main():
         print(f"\n Finished scraping {model}, {len(seen_vins)} unique VINs")
         elapsed = time.time() - model_start_time
         mins, secs = divmod(int(elapsed), 60)
-        print(f"⏱️ Model run time: {mins}m {secs}s")
+        print(f" Model run time: {mins}m {secs}s")
 
     refresh_cleaned_listings()
     verify_active_listings()
 
     # Summary output
-    print("\n📊 Scrape Summary:")
+    print("\n Scrape Summary:")
     for model, count in new_vins_by_model.items():
         print(f" - {model}: {count} new VINs")
 
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT COUNT(*) as count FROM listings WHERE status = 'active'", conn)
     conn.close()
-    print(f"\n✅ Total active VINs in DB: {df['count'].iloc[0]}")
+    print(f"\n Total active VINs in DB: {df['count'].iloc[0]}")
 
     elapsed = time.time() - start_time
     mins, secs = divmod(int(elapsed), 60)
-    print(f"⏱️ Total run time: {mins}m {secs}s")
+    print(f"\n Total run time: {mins}m {secs}s")
 
 if __name__ == "__main__":
     main()

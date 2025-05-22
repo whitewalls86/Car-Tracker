@@ -77,7 +77,8 @@ def fetch_page_with_fallback(url, wait_for_selector="div.vehicle-card"):
         options.add_argument("--headless")
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920x1080")
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        service = Service(executable_path=ChromeDriverManager().install(), log_path="/dev/null")  # Use "NUL" on Windows
+        driver = webdriver.Chrome(service=service, options=options)
         driver.get(url)
         if wait_for_selector:
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_for_selector)))

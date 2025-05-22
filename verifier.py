@@ -1,3 +1,5 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import sqlite3
 from datetime import date, datetime
 from bs4 import BeautifulSoup
@@ -39,7 +41,8 @@ def fetch_with_selenium(url):
     options.add_argument("--headless")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920x1080")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    service = Service(executable_path=ChromeDriverManager().install(), log_path="/dev/null")  # Use "NUL" on Windows
+    driver = webdriver.Chrome(service=service, options=options)
     driver.get(url)
     time.sleep(3)
     html = driver.page_source
