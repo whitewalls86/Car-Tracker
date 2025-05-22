@@ -41,11 +41,16 @@ def db_writer():
     while True:
         item = db_queue.get()
         if item is None:
+            db_queue.task_done()
             break
-        listing, price = item
-        save_or_update_listing(listing)
-        log_price(listing["vin"], price)
-        db_queue.task_done()
+        try:
+            listing, price = item
+            save_or_update_listing(listing)
+            log_price(listing["vin"], price)
+        except Exception as e:
+            print(f"\n DB write error: {e}")
+        finally:
+            db_queue.task_done()
 
 
 def fetch_page_with_fallback(url, wait_for_selector="div.vehicle-card"):
@@ -180,7 +185,7 @@ def process_card(card, models, scope, seen_vins, start_time):
         return vin
 
     except Exception as e:
-        print(f"Error parsing card: {e}")
+        print(f"\n Error parsing card: {e}")
         return None
 
 
@@ -203,9 +208,11 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             "maximum_distance": radius if scope == "local" else "all"
         }
         full_url = BASE_URL + "?" + urlencode(params, doseq=True)
+        elapsed = int(time.time() - start_time)
+        print(f"\r {models}-{scope} | Page {page_num} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
         soup = fetch_page_with_fallback(full_url, wait_for_selector="div.vehicle-card")
         if not soup:
-            print(f" Error on page {page_num}: unable to fetch page.")
+            print(f"\n Error on page {page_num}: unable to fetch page.")
             return
         cards = soup.select("div.vehicle-card")
         for card in cards:
@@ -213,10 +220,10 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
     def card_worker():
         while True:
-            try:
-                card = card_queue.get(timeout=5)
-            except:
-                return
+            card = card_queue.get()
+            if card is None:
+                card_queue.task_done()
+                break
             vin = process_card(card, models, scope, seen_vins, start_time)
             if vin:
                 seen_today.append(vin)
@@ -226,7 +233,12 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
     # Start page loader threads
     with ThreadPoolExecutor(max_workers=5) as page_executor:
-        page_executor.map(page_loader, range(1, MAX_PAGES + 1))
+        futures = [page_executor.submit(page_loader, i) for i in range(1, MAX_PAGES + 1)]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"\n Error loading a page: {e}")
 
     # Start card processor threads
     workers = []
@@ -236,6 +248,8 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
         workers.append(t)
 
     card_queue.join()
+    for _ in workers:
+        card_queue.put(None)
     for t in workers:
         t.join()
 

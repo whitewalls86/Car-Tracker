@@ -16,24 +16,22 @@ from queue import Queue
 from config import DB_PATH
 from collections import deque
 
-failed_user_agents = set()
-used_user_agents = set()
-valid_user_agents = set()
 FAILED_UA_LOG = "failed_user_agents.log"
 SUCCESS_UA_LOG = "successful_user_agents.log"
 VALID_UA_LOG = "valid_user_agents.txt"
 
+failed_user_agents = set()
+used_user_agents = set()
+valid_user_agents = set()
+
 
 def check_listing_still_active(soup):
-    unlisted_notice = soup.select_one("spark-notification.unlisted-notification[open]")
-    return unlisted_notice is None
+    return soup.select_one("spark-notification.unlisted-notification[open]") is None
 
 
 def extract_price(soup):
-    price_el = soup.select_one("span.primary-price")
-    if price_el and "$" in price_el.text:
-        return int(price_el.text.strip().replace("$", "").replace(",", ""))
-    return None
+    el = soup.select_one("span.primary-price")
+    return int(el.text.strip().replace("$", "").replace(",", "")) if el and "$" in el.text else None
 
 
 def fetch_with_selenium(url):
@@ -81,7 +79,6 @@ def fetch_with_retries(url, user_agent, max_retries=3):
 
 
 def verify_active_listings():
-
     today = date.today()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -150,7 +147,7 @@ def verify_active_listings():
             remaining = int(avg_time_per_vin * (total - i))
             eta_min, eta_sec = divmod(remaining, 60)
             percent = (i / total) * 100
-            print(f"\r✔ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed}s | ETA: {eta_min}m {eta_sec}s", end="", flush=True)
+            print(f"\r Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed}s | ETA: {eta_min}m {eta_sec}s", end="", flush=True)
 
     update_queue.join()
     update_queue.put(None)
