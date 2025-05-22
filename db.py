@@ -137,6 +137,7 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                 WHEN title LIKE '%Mazda%' THEN 'Mazda'
                 WHEN title LIKE '%Toyota%' THEN 'Toyota'
                 WHEN title LIKE '%Santa Fe%' THEN 'Hyundai'
+                WHEN title LIKE '%Escape%' THEN 'Ford'
                 ELSE title
             END AS make,
             CASE
@@ -148,6 +149,10 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                 WHEN title LIKE '%Mazda%' THEN 'cx-50'
                 WHEN title LIKE '%Toyota%' THEN 'Rav4'
                 WHEN title LIKE '%Santa Fe%' THEN 'Santa Fe'
+                WHEN title LIKE '%Escape%' THEN
+                    CASE WHEN title LIKE '%PHEV%' THEN 'Escape-PHEV'
+                         ELSE 'Escape'
+                    END
                 ELSE title
             END AS model,
             CASE
@@ -200,6 +205,21 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                         WHEN title LIKE '%Limit%' THEN 'Limited'
                     END
                 WHEN title LIKE '%Santa Fe%' THEN 'Santa Fe'
+                WHEN title LIKE '%Escape%' THEN
+                    CASE 
+                        WHEN title LIKE '%PHEV%' THEN
+                            CASE 
+                                WHEN title LIKE '%SE%' and title not like '%base%' THEN 'SE'
+                                ELSE 'base'
+                            END
+                        ELSE
+                            CASE
+                                WHEN title like '%Platinum%' THEN 'Platinum'
+                                WHEN title like '%Active%' THEN 'Active'
+                                WHEN title like 'SE' THEN 'SE'
+                                WHEN title like 'Line' THEN 'ST-Line'
+                            END
+                    END
                 ELSE title
             END as trim,
             CASE
