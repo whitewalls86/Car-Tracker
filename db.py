@@ -125,6 +125,10 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                 WHEN title LIKE '%2024%' THEN '2024'
                 WHEN title LIKE '%2023%' THEN '2023'
                 WHEN title LIKE '%2026%' THEN '2026'
+                WHEN title LIKE '%2022%' THEN '2022'
+                WHEN title LIKE '%2021%' THEN '2021'
+                WHEN title LIKE '%2020%' THEN '2020'
+                WHEN title LIKE '%2019%' THEN '2019'
             END as year,
             CASE
                 WHEN title LIKE '%Volkswagen%' THEN 'Volkswagen'
@@ -180,6 +184,7 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                         WHEN title LIKE '%Premium%' THEN 'Premium'
                         WHEN title LIKE '%Sport%' THEN 'Sport'
                         WHEN title LIKE '%Touring%' THEN 'Touring'
+                        Else 'N/A'
                     END
                 WHEN title LIKE '%Tucson%' THEN
                     CASE
@@ -201,6 +206,7 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                         WHEN title LIKE '%XLE%' THEN 'XLE'
                         WHEN title LIKE '%LE%' THEN 'LE'
                         WHEN title LIKE '%Limit%' THEN 'Limited'
+                        ELSE 'N/A'
                     END
                 WHEN title LIKE '%Santa Fe%' THEN 'Santa Fe'
                 WHEN title LIKE '%Escape%' THEN
@@ -213,9 +219,10 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                         ELSE
                             CASE
                                 WHEN title like '%Platinum%' THEN 'Platinum'
+                                WHEN title like '%Titanium%' THEN 'Titanium'
                                 WHEN title like '%Active%' THEN 'Active'
-                                WHEN title like 'SE' THEN 'SE'
-                                WHEN title like 'Line' THEN 'ST-Line'
+                                WHEN title like '%SE%' THEN 'SE'
+                                WHEN title like '%Line%' THEN 'ST-Line'
                             END
                     END
                 ELSE title
