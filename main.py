@@ -1,4 +1,4 @@
-from config import SEARCH_CONFIG
+from config import SEARCH_CONFIG, DB_PATH
 from scraper import scrape_main_results
 from db import init_db, refresh_cleaned_listings
 from verifier import verify_active_listings
@@ -7,8 +7,6 @@ import sqlite3
 import pandas as pd
 import os
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
 
 def main():
     start_time = time.time()

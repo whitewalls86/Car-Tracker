@@ -8,10 +8,12 @@ import random
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 import cloudscraper
-import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+from config import DB_PATH
 
 failed_user_agents = set()
 used_user_agents = set()
@@ -78,8 +80,6 @@ def fetch_with_retries(url, user_agent, max_retries=3):
 
 
 def verify_active_listings():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
 
     today = date.today()
     conn = sqlite3.connect(DB_PATH)
@@ -90,64 +90,62 @@ def verify_active_listings():
         WHERE status = 'active' AND last_seen < ?
     """, (today,))
     rows = cur.fetchall()
+    conn.close()
 
     print(f"Verifying {len(rows)} listings...")
 
+    update_queue = Queue()
     ua = UserAgent()
-    retry_list = []
-    start_time = datetime.now()
 
-    if os.path.exists(VALID_UA_LOG):
-        with open(VALID_UA_LOG, "r", encoding="utf-8") as f:
-            valid_user_agents.update(line.strip() for line in f if line.strip())
-
-    total = len(rows)
-    for i, (vin, url) in enumerate(rows, 1):
-        soup = fetch_with_retries(url, ua)
-        if soup is None:
-            try:
-                soup = fetch_with_selenium(url)
-            except Exception:
-                retry_list.append((vin, url))
-                continue
-
-        try:
-            if check_listing_still_active(soup):
-                price = extract_price(soup)
+    def db_update_worker():
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        while True:
+            task = update_queue.get()
+            if task is None:
+                break
+            vin, status, price = task
+            if status == "inactive":
+                cur.execute("UPDATE listings SET status = 'inactive' WHERE vin = ?", (vin,))
+            else:
                 if price:
                     cur.execute("UPDATE listings SET price = ?, last_seen = ? WHERE vin = ?", (price, today, vin))
                     cur.execute("INSERT INTO price_history (vin, date, price) VALUES (?, ?, ?)", (vin, today, price))
                 else:
                     cur.execute("UPDATE listings SET last_seen = ? WHERE vin = ?", (today, vin))
-            else:
-                cur.execute("UPDATE listings SET status = 'inactive' WHERE vin = ?", (vin,))
-
             conn.commit()
-        except Exception:
-            retry_list.append((vin, url))
+            update_queue.task_done()
+        conn.close()
 
-        # In-place progress update
-        elapsed = (datetime.now() - start_time).total_seconds()
-        percent = (i / total) * 100
-        est_total = elapsed / i * total if i > 0 else 0
-        remaining = max(0, est_total - elapsed)
-        eta_min, eta_sec = divmod(int(remaining), 60)
-        print(f"\r✔️ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {int(elapsed)}s | ETA: {eta_min}m {eta_sec}s", end="", flush=True)
+    def verify_listing(vin, url):
+        soup = fetch_with_retries(url, ua)
+        if soup is None:
+            try:
+                soup = fetch_with_selenium(url)
+            except:
+                return vin, None, None
+        if soup and not check_listing_still_active(soup):
+            return vin, "inactive", None
+        price = extract_price(soup)
+        return vin, "active", price
 
-        time.sleep(random.uniform(0.5, 1.5))
+    db_thread = threading.Thread(target=db_update_worker, daemon=True)
+    db_thread.start()
 
-    print()  # Final newline after in-place updates
-    conn.close()
+    start_time = time.time()
+    total = len(rows)
 
-    if retry_list:
-        print(f"\n {len(retry_list)} listings failed. Consider retrying:")
-        for vin, url in retry_list:
-            print(f" - {vin}: {url}")
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(verify_listing, vin, url): vin for vin, url in rows}
+        for i, future in enumerate(as_completed(futures), 1):
+            vin, status, price = future.result()
+            if status is not None:
+                update_queue.put((vin, status, price))
+            elapsed = int(time.time() - start_time)
+            percent = (i / total) * 100
+            print(f"\r✔ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed}s", end="", flush=True)
 
-    new_valid_user_agents = used_user_agents - failed_user_agents
-    if new_valid_user_agents:
-        print("Valid User-Agents (used successfully without failure):")
-        with open(VALID_UA_LOG, "a", encoding="utf-8") as f:
-            for agent in new_valid_user_agents:
-                print(f" - {agent}")
-                f.write(agent + "\n")
+    update_queue.join()
+    update_queue.put(None)
+    db_thread.join()
+    print("\n Verification complete.")

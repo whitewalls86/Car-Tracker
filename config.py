@@ -1,3 +1,5 @@
+import os
+
 SEARCH_CONFIG = {
     # Base ZIP code for local search radius
     "zip": "77080",
@@ -30,3 +32,6 @@ SEARCH_CONFIG = {
     # Priority: local listings are processed first; national listings skip VINs already seen locally
     "prioritize_local_first": True
 }
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")

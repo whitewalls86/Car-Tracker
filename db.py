@@ -1,9 +1,7 @@
 import os
 import sqlite3
 from datetime import date
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
+from config import DB_PATH
 
 def init_db():
     os.makedirs("data", exist_ok=True)
