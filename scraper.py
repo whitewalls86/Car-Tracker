@@ -233,7 +233,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             card_queue.task_done()
 
     # Start page loader threads
-    with ThreadPoolExecutor(max_workers=5) as page_executor:
+    with ThreadPoolExecutor(max_workers=8) as page_executor:
         futures = [page_executor.submit(page_loader, i) for i in range(1, MAX_PAGES + 1)]
         for future in as_completed(futures):
             try:
@@ -243,7 +243,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
 
     # Start card processor threads
     workers = []
-    for _ in range(10):
+    for _ in range(21):
         t = threading.Thread(target=card_worker)
         t.start()
         workers.append(t)

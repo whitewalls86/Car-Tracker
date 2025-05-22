@@ -136,7 +136,7 @@ def verify_active_listings():
     start_time = time.time()
     total = len(rows)
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=24) as executor:
         futures = {executor.submit(verify_listing, vin, url): vin for vin, url in rows}
         recent_times = deque(maxlen=100)
         for i, future in enumerate(as_completed(futures), 1):
