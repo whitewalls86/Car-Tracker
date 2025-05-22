@@ -14,6 +14,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from config import DB_PATH
+from collections import deque
 
 failed_user_agents = set()
 used_user_agents = set()
@@ -137,13 +138,19 @@ def verify_active_listings():
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(verify_listing, vin, url): vin for vin, url in rows}
+        recent_times = deque(maxlen=100)
         for i, future in enumerate(as_completed(futures), 1):
             vin, status, price = future.result()
             if status is not None:
                 update_queue.put((vin, status, price))
-            elapsed = int(time.time() - start_time)
+            now = time.time()
+            elapsed = int(now - start_time)
+            recent_times.append(now)
+            avg_time_per_vin = (recent_times[-1] - recent_times[0]) / len(recent_times) if len(recent_times) > 1 else 0
+            remaining = int(avg_time_per_vin * (total - i))
+            eta_min, eta_sec = divmod(remaining, 60)
             percent = (i / total) * 100
-            print(f"\r✔ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed}s", end="", flush=True)
+            print(f"\r✔ Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed}s | ETA: {eta_min}m {eta_sec}s", end="", flush=True)
 
     update_queue.join()
     update_queue.put(None)

@@ -1,4 +1,4 @@
-from db import refresh_cleaned_listings
+from verifier import verify_active_listings
 
 
-refresh_cleaned_listings()
+verify_active_listings()
