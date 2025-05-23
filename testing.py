@@ -1,3 +1,5 @@
-from db import refresh_cleaned_listings
+from verifier import verify_active_listings
+from scraper import scrape_main_results
+from page_fetcher import fetch_soup_with_fallback
 
-refresh_cleaned_listings()
+verify_active_listings()

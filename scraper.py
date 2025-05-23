@@ -1,40 +1,24 @@
-# scraper.py with full original features + multithreading
 import time
 import random
-import os
 from datetime import date, timedelta
 from urllib.parse import urlencode
-from bs4 import BeautifulSoup
-import requests
-import cloudscraper
-from fake_useragent import UserAgent
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 import threading
 from config import SEARCH_CONFIG
 from db import listing_exists_by_listing_id, save_or_update_listing, log_price
+from page_fetcher import fetch_soup_with_fallback
+from collections import deque, Counter
+
 
 BASE_URL = "https://www.cars.com/shopping/results/"
 SHIPPING_COST_PER_MILE = SEARCH_CONFIG["shipping_cost_per_mile"]
 PAGE_SIZE = SEARCH_CONFIG.get("page_size", 20)
 MAX_PAGES = SEARCH_CONFIG.get("pages", 5)
 
-VALID_UA_LOG = "valid_user_agents.txt"
-valid_user_agents = []
-if os.path.exists(VALID_UA_LOG):
-    with open(VALID_UA_LOG, "r", encoding="utf-8") as f:
-        valid_user_agents = [line.strip() for line in f if line.strip()]
-
-ua = UserAgent()
 db_queue = Queue()
 seen_vins_lock = threading.Lock()
+recent_request_types = deque(maxlen=100)
 
 
 def db_writer():
@@ -53,61 +37,21 @@ def db_writer():
             db_queue.task_done()
 
 
-def fetch_page_with_fallback(url, wait_for_selector="div.vehicle-card"):
-    user_agents_to_try = valid_user_agents.copy() or [ua.random for _ in range(3)]
-    for ua_string in user_agents_to_try:
-        try:
-            headers = {"User-Agent": ua_string}
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                return BeautifulSoup(res.text, "html.parser")
-        except:
-            continue
-
-    try:
-        scraper = cloudscraper.create_scraper()
-        res = scraper.get(url, timeout=10)
-        if res.status_code == 200:
-            return BeautifulSoup(res.text, "html.parser")
-    except:
-        pass
-
-    try:
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--window-size=1920x1080")
-        service = Service(executable_path=ChromeDriverManager().install(), log_path="/dev/null")  # Use "NUL" on Windows
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.get(url)
-        if wait_for_selector:
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, wait_for_selector)))
-        html = driver.page_source
-        driver.quit()
-        return BeautifulSoup(html, "html.parser")
-    except Exception as e:
-        print(f"[Selenium fallback error] {url} — {e}")
-        return None
-
-
 def scrape_detail_page(url):
     try:
         time.sleep(random.uniform(2.0, 4.0))
-        soup = fetch_page_with_fallback(url, wait_for_selector="div.vin")
+        soup, req_type = fetch_soup_with_fallback(url, 10)
         if not soup:
-            return {"vin": None, "days_on_market": None, "mileage": None}
-
-        vin_input = soup.find("input", {"aria-label": "VIN (optional)"})
-        vin = vin_input["value"].strip() if vin_input else None
+            return {"vin": None, "days_on_market": None, "mileage": None, "request_type": None}
 
         listed_time_tag = soup.select_one('div.price-history-summary div.listed-time strong')
         days_on_market = int(listed_time_tag.text.strip()) if listed_time_tag else None
 
         mileage, vin = extract_mileage_and_vin(soup)
-        return {"vin": vin, "days_on_market": days_on_market, "mileage": mileage}
+        return {"vin": vin, "days_on_market": days_on_market, "mileage": mileage, "request_type": req_type}
     except Exception as e:
         print(f"[detail scrape error] {url} — {e}")
-        return {"vin": None, "days_on_market": None, "mileage": None}
+        return {"vin": None, "days_on_market": None, "mileage": None, "request_type": None}
 
 
 def extract_mileage_and_vin(soup):
@@ -128,22 +72,22 @@ def extract_mileage_and_vin(soup):
     return mileage, vin
 
 
-def process_card(card, models, scope, seen_vins, start_time):
+def process_card(card, scope, seen_vins):
     try:
         listing_id = card.get("data-listing-id")
         if listing_exists_by_listing_id(listing_id):
-            return None
+            return None, None
 
         relative_url = card.select_one("a.image-gallery-link")["href"]
         detail_url = f"https://www.cars.com{relative_url}"
         detail_data = scrape_detail_page(detail_url)
         vin = detail_data.get("vin")
         if not vin:
-            return None
+            return None, None
 
         with seen_vins_lock:
             if vin in seen_vins:
-                return None
+                return None, None
             seen_vins.add(vin)
 
         title = card.select_one("h2.title").text.strip()
@@ -183,11 +127,11 @@ def process_card(card, models, scope, seen_vins, start_time):
         }
 
         db_queue.put((listing, price))
-        return vin
+        return vin, detail_data.get("request_type")
 
     except Exception as e:
         print(f"\n Error parsing card: {e}")
-        return None
+        return None, None
 
 
 def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
@@ -211,7 +155,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
         full_url = BASE_URL + "?" + urlencode(params, doseq=True)
         elapsed = int(time.time() - start_time)
         print(f"\r {models}-{scope} | Page {page_num} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
-        soup = fetch_page_with_fallback(full_url, wait_for_selector="div.vehicle-card")
+        soup, request_type = fetch_soup_with_fallback(full_url, 10)
         if not soup:
             print(f"\n Error on page {page_num}: unable to fetch page.")
             return
@@ -225,15 +169,20 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             if card is None:
                 card_queue.task_done()
                 break
-            vin = process_card(card, models, scope, seen_vins, start_time)
+            vin, request_type = process_card(card, scope, seen_vins)
+            if request_type:
+                recent_request_types.append(request_type)
             if vin:
                 seen_today.append(vin)
+            method_counts = Counter(recent_request_types)
+            summary = " | ".join(f"{m}: {c}%" for m, c in method_counts.items())
             elapsed = int(time.time() - start_time)
-            print(f"\r {models}-{scope} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
+            elapsed_min, elapsed_sec = divmod(elapsed, 60)
+            print(f"\r {models}-{scope} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed_min}m {elapsed_sec}s | {summary}", end="", flush=True)
             card_queue.task_done()
 
     # Start page loader threads
-    with ThreadPoolExecutor(max_workers=8) as page_executor:
+    with ThreadPoolExecutor(max_workers=20) as page_executor:
         futures = [page_executor.submit(page_loader, i) for i in range(1, MAX_PAGES + 1)]
         for future in as_completed(futures):
             try:
