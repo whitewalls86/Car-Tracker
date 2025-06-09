@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 import threading
 from config import SEARCH_CONFIG
-from db import listing_exists_by_listing_id, save_or_update_listing, log_price
+from db import listing_exists_by_listing_id, update_and_log, get_vin_from_listing_id
 from page_fetcher import fetch_soup_with_fallback
 from collections import deque, Counter
 
@@ -29,8 +29,7 @@ def db_writer():
             break
         try:
             listing, price = item
-            save_or_update_listing(listing)
-            log_price(listing["vin"], price)
+            update_and_log(listing)
         except Exception as e:
             print(f"\n DB write error: {e}")
         finally:
@@ -76,7 +75,38 @@ def process_card(card, scope, seen_vins):
     try:
         listing_id = card.get("data-listing-id")
         if listing_exists_by_listing_id(listing_id):
-            return None, None
+            # Skip detail page — grab VIN from DB
+            row = get_vin_from_listing_id(listing_id)
+
+            if row:
+                try:
+                    vin = row[0]
+                    price_el = card.select_one("span.primary-price")
+                    price = int(price_el.text.strip().replace("$", "").replace(",",
+                                                                               "")) if price_el and "$" in price_el.text else None
+                    listing = {
+                        "vin": vin,
+                        "listing_id": listing_id,
+                        "title": None,
+                        "price": price,
+                        "mileage": None,
+                        "dealer": None,
+                        "location": None,
+                        "distance": None,
+                        "shipping_cost": None,
+                        "search_scope": scope,
+                        "url": None,
+                        "image_url": None,
+                        "days_on_market": None,
+                        "date_added": None,
+                        "msrp": None
+                    }
+                    db_queue.put((listing, price))
+                    return vin, "cached", True
+                except Exception as e:
+                    print(f"[card scrape error] {e}")
+            else:
+                return None, None, False
 
         relative_url = card.select_one("a.image-gallery-link")["href"]
         detail_url = f"https://www.cars.com{relative_url}"
@@ -103,7 +133,7 @@ def process_card(card, scope, seen_vins):
         try:
             raw_distance = location.split("(")[-1].split("mi.")[0].strip().replace(",", "")
             distance = int(raw_distance)
-        except:
+        except (ValueError, TypeError):
             distance = None
 
         shipping_cost = round(distance * SHIPPING_COST_PER_MILE, 2) if distance else None
@@ -127,15 +157,16 @@ def process_card(card, scope, seen_vins):
         }
 
         db_queue.put((listing, price))
-        return vin, detail_data.get("request_type")
+        return vin, detail_data.get("request_type"), True  # Indicates "updated"
 
     except Exception as e:
         print(f"\n Error parsing card: {e}")
-        return None, None
+        return None, None, False
 
 
 def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
     seen_today = []
+    updated_vins_count = 0
     start_time = time.time()
     db_thread = threading.Thread(target=db_writer, daemon=True)
     db_thread.start()
@@ -154,7 +185,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
         }
         full_url = BASE_URL + "?" + urlencode(params, doseq=True)
         elapsed = int(time.time() - start_time)
-        print(f"\r {models}-{scope} | Page {page_num} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
+        print(f"\r {models}-{scope} | Page {page_num} | Processed VINs: {len(seen_today)} | Card Queue: {card_queue.qsize()} | DB Queue: {db_queue.qsize()} | Elapsed: {elapsed}s", end="", flush=True)
         soup, request_type = fetch_soup_with_fallback(full_url, 10)
         if not soup:
             print(f"\n Error on page {page_num}: unable to fetch page.")
@@ -169,7 +200,10 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             if card is None:
                 card_queue.task_done()
                 break
-            vin, request_type = process_card(card, scope, seen_vins)
+            vin, request_type, was_updated = process_card(card, scope, seen_vins)
+            if was_updated:
+                nonlocal updated_vins_count
+                updated_vins_count += 1
             if request_type:
                 recent_request_types.append(request_type)
             if vin:
@@ -178,7 +212,7 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
             summary = " | ".join(f"{m}: {c}%" for m, c in method_counts.items())
             elapsed = int(time.time() - start_time)
             elapsed_min, elapsed_sec = divmod(elapsed, 60)
-            print(f"\r {models}-{scope} | Processed VINs: {len(seen_today)} | Queue: {card_queue.qsize()} | Elapsed: {elapsed_min}m {elapsed_sec}s | {summary}", end="", flush=True)
+            print(f"\r {models}-{scope} | Processed VINs: {len(seen_today)} | Card Queue: {card_queue.qsize()} | DB Queue: {db_queue.qsize()} | Elapsed: {elapsed_min}m {elapsed_sec}s | {summary}", end="", flush=True)
             card_queue.task_done()
 
     # Start page loader threads
@@ -207,4 +241,4 @@ def scrape_main_results(makes, models, scope, seen_vins, zip_code, radius):
     db_queue.put(None)
     db_thread.join()
     print()
-    return seen_today
+    return seen_today, updated_vins_count

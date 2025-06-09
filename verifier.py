@@ -93,7 +93,7 @@ def verify_active_listings():
             remaining = int(avg_time_per_vin * (total - i))
             eta_min, eta_sec = divmod(remaining, 60)
             percent = (i / total) * 100
-            print(f"\r Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed_min}m {elapsed_sec}s | ETA: {eta_min}m {eta_sec}s | {summary}.", end="", flush=True)
+            print(f"\r Verifying {i}/{total} ({percent:.1f}%) | Elapsed: {elapsed_min}m {elapsed_sec}s | ETA: {eta_min}m {eta_sec}s | {summary} | Total Downloaded: {total_bytes_downloaded / 1024 / 1024:.2f} MB.", end="", flush=True)
 
     update_queue.join()
     update_queue.put(None)

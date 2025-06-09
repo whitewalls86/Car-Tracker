@@ -2,10 +2,13 @@ from config import SEARCH_CONFIG, DB_PATH
 from scraper import scrape_main_results
 from db import init_db, refresh_cleaned_listings
 from verifier import verify_active_listings
+from status_tracker import StatusTracker
 import time
 import sqlite3
 import pandas as pd
-import os
+import page_fetcher
+
+tracker = StatusTracker()
 
 
 def main():
@@ -16,6 +19,12 @@ def main():
     models = SEARCH_CONFIG["models"]
     seen_vins = set()
     new_vins_by_model = {}
+    updated_vins_by_model = {}
+
+    for entry in SEARCH_CONFIG["models"]:
+        tracker.register_model(entry["make"], entry["model"])
+
+    tracker.start_refresh_loop()
 
     print(f"\n Starting scrape by model:")
 
@@ -24,38 +33,35 @@ def main():
         make = entry["make"]
         model = entry["model"]
 
-        local_vins = scrape_main_results(
+        local_vins, local_updated = scrape_main_results(
             [make], [model], "local", seen_vins, zip_code, radius)
         seen_vins.update(local_vins)
         print()  # newline after local
+        print(f" - Total Requests: {page_fetcher.total_requests_made}")
+        print(f" - Total Downloaded: {page_fetcher.total_bytes_downloaded / 1024 / 1024:.2f} MB")
 
         # Scrape national with timer feedback
-        national_vins = scrape_main_results([make], [model], "national", seen_vins, zip_code, radius)
+        national_vins, national_updated = scrape_main_results([make], [model], "national", seen_vins, zip_code, radius)
 
         total_new = len(local_vins) + len(national_vins)
+        total_updated = local_updated + national_updated
         new_vins_by_model[f"{make} {model}"] = total_new
+        updated_vins_by_model[f"{make} {model}"] = total_updated
 
-        print(f"\n Finished scraping {model}, {len(seen_vins)} unique VINs")
+        print(f"\n Finished scraping {model}, {len(seen_vins)} unique VINs, {total_new} new VINs, {total_updated} VINs updated.")
         elapsed = time.time() - model_start_time
         mins, secs = divmod(int(elapsed), 60)
         print(f" Model run time: {mins}m {secs}s")
+        # Data usage
+        print(f"\n 📡 Estimated Data Usage:")
+        print(f" - Total Requests: {page_fetcher.total_requests_made}")
+        print(f" - Total Downloaded: {page_fetcher.total_bytes_downloaded / 1024 / 1024:.2f} MB")
 
     refresh_cleaned_listings()
     verify_active_listings()
 
-    # Summary output
-    print("\n Scrape Summary:")
-    for model, count in new_vins_by_model.items():
-        print(f" - {model}: {count} new VINs")
+    tracker.stop()
 
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT COUNT(*) as count FROM listings WHERE status = 'active'", conn)
-    conn.close()
-    print(f"\n Total active VINs in DB: {df['count'].iloc[0]}")
-
-    elapsed = time.time() - start_time
-    mins, secs = divmod(int(elapsed), 60)
-    print(f"\n Total run time: {mins}m {secs}s")
 
 if __name__ == "__main__":
     main()

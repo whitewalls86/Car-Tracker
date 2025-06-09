@@ -2,6 +2,21 @@ import os
 import sqlite3
 from datetime import date
 from config import DB_PATH
+from contextlib import contextmanager
+from typing import Optional, Generator
+
+
+@contextmanager
+def get_db_conn(existing_conn: Optional[sqlite3.Connection] = None) -> Generator[sqlite3.Connection, None, None]:
+    if existing_conn:
+        yield existing_conn
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
 
 def init_db():
     os.makedirs("data", exist_ok=True)
@@ -46,25 +61,33 @@ def init_db():
         conn.commit()
 
 
-def listing_exists_by_vin(vin):
+def listing_exists(field: str, value: str) -> bool:
+    assert field in {"vin", "listing_id"}, "Invalid field for existence check."
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT 1 FROM listings WHERE vin = ?", (vin,))
+        cur.execute(f"SELECT 1 FROM listings WHERE {field} = ?", (value,))
         return cur.fetchone() is not None
 
 
-def listing_exists_by_listing_id(listing_id):
+def listing_exists_by_vin(vin: str) -> bool:
+    return listing_exists("vin", vin)
+
+
+def listing_exists_by_listing_id(listing_id: str) -> bool:
+    return listing_exists("listing_id", listing_id)
+
+
+def get_vin_from_listing_id(listing_id: str) -> Optional[str]:
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
-        cur.execute("SELECT 1 FROM listings WHERE listing_id = ?", (listing_id,))
-        return cur.fetchone() is not None
+        cur.execute("SELECT vin FROM listings WHERE listing_id = ?", (listing_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
 
-def save_or_update_listing(data):
-    with sqlite3.connect(DB_PATH) as conn:
-        cur = conn.cursor()
-
-        # Insert or ignore listing
+def save_or_update_listing(data: dict, conn: Optional[sqlite3.Connection] = None) -> None:
+    with get_db_conn(conn) as db:
+        cur = db.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO listings (
                 vin, listing_id, title, price, msrp, mileage, dealer, location, distance,
@@ -78,37 +101,37 @@ def save_or_update_listing(data):
             data["date_added"], date.today(), date.today(), "active"
         ))
 
-        # Always update listing_id, price, last_seen, and search scope
         cur.execute("""
             UPDATE listings SET
                 listing_id = ?,
                 price = ?,
                 last_seen = ?,
-                search_scope = ?,
-                distance = ?,
-                shipping_cost = ?
+                search_scope = ?
             WHERE vin = ?
         """, (
-            data["listing_id"], data["price"], date.today(), data["search_scope"],
-            data["distance"], data["shipping_cost"], data["vin"]
+            data["listing_id"], data["price"], date.today(), data["search_scope"], data["vin"]
         ))
+        db.commit()
 
-        conn.commit()
 
-
-def log_price(vin, price):
-    with sqlite3.connect(DB_PATH) as conn:
-        cur = conn.cursor()
-        # Check if a price already exists today for this VIN
-        cur.execute("""
-            SELECT 1 FROM price_history WHERE vin = ? AND date = ?
-        """, (vin, date.today()))
+def log_price(vin: str, price: int, conn: Optional[sqlite3.Connection] = None) -> None:
+    with get_db_conn(conn) as db:
+        cur = db.cursor()
+        cur.execute("SELECT 1 FROM price_history WHERE vin = ? AND date = ?", (vin, date.today()))
         if cur.fetchone() is None:
-            cur.execute("""
-                INSERT INTO price_history (vin, date, price)
-                VALUES (?, ?, ?)
-            """, (vin, date.today(), price))
-            conn.commit()
+            cur.execute("INSERT INTO price_history (vin, date, price) VALUES (?, ?, ?)", (vin, date.today(), price))
+            db.commit()
+
+
+def update_and_log(data):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        save_or_update_listing(data, conn)
+        log_price(data["vin"], data["price"], conn)
+        conn.commit()
+    finally:
+        conn.close()
+
 
 def refresh_cleaned_listings(db_path=DB_PATH):
     conn = sqlite3.connect(db_path)
@@ -232,7 +255,8 @@ def refresh_cleaned_listings(db_path=DB_PATH):
                     CAST(julianday(last_seen) - julianday(first_seen) AS INTEGER)
                 ELSE NULL
             END AS implied_days_on_market,
-            COALESCE(days_on_market, CAST(julianday(last_seen) - julianday(first_seen) AS INTEGER)) as calculated_days_on_market,
+            COALESCE(days_on_market, CAST(julianday(last_seen) - julianday(first_seen) AS INTEGER)) as 
+            calculated_days_on_market,
             *
         FROM listings
     ),

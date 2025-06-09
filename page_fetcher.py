@@ -9,8 +9,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 from fake_useragent import UserAgent
 from user_agent_tracking import get_valid_user_agents, log_user_agent, read_user_agent_set
 
+total_bytes_downloaded = 0
+total_requests_made = 0
+
 
 def fetch_soup_with_fallback(url, max_attempts=10):
+    global total_bytes_downloaded, total_requests_made
     user_agents = get_valid_user_agents()
     tried_user_agents = set()
     failed_user_agents = read_user_agent_set("failed_user_agents.log")
@@ -44,6 +48,8 @@ def fetch_soup_with_fallback(url, max_attempts=10):
         time.sleep(3)
         html = driver.page_source
         driver.quit()
+        total_bytes_downloaded += len(html.encode("utf-8"))
+        total_requests_made += 1
         return BeautifulSoup(html, "html.parser"), "selenium"
     except Exception as e:
         print(f"[selenium error] {url} | {e}")
@@ -51,10 +57,13 @@ def fetch_soup_with_fallback(url, max_attempts=10):
 
 
 def try_agent(url, ua):
+    global total_bytes_downloaded, total_requests_made
     headers = {"User-Agent": ua}
     try:
         time.sleep(random.uniform(2.0, 4.0))
         res = requests.get(url, headers=headers, timeout=5)
+        total_requests_made += 1
+        total_bytes_downloaded += len(res.content)
         if res.status_code == 200 and res.text.strip():
             log_user_agent(ua, success=True)
             return BeautifulSoup(res.text, "html.parser")
