@@ -1,64 +1,66 @@
-from config import SEARCH_CONFIG, DB_PATH
-from scraper import scrape_main_results
-from db import init_db, refresh_cleaned_listings
-from verifier import verify_active_listings
+from job import PrioritizedJobQueue, Worker, SharedState, StopJob
+from jobs.dispatcher import Dispatcher
+from jobs.page_loader import PageLoadJob
+from config import SEARCH_CONFIG
+from db import init_db
 from status_tracker import StatusTracker
-import time
-import sqlite3
-import pandas as pd
-import page_fetcher
+from utils.job_utils import enqueue_with_priority
 
-tracker = StatusTracker()
+
+NUM_WORKERS = 32
 
 
 def main():
-    start_time = time.time()
     init_db()
+
+    shared_state = SharedState(batch_size=200)
+    tracker = StatusTracker()
+    shared_state.tracker = tracker
+
+    tracker.start_loop()
+
+    job_queue = PrioritizedJobQueue()
+    workers = [Worker(job_queue) for _ in range(NUM_WORKERS)]
+    for w in workers:
+        w.start()
+
     zip_code = SEARCH_CONFIG["zip"]
     radius = SEARCH_CONFIG["radius"]
+    total_pages = SEARCH_CONFIG["pages"]
     models = SEARCH_CONFIG["models"]
-    seen_vins = set()
-    new_vins_by_model = {}
-    updated_vins_by_model = {}
-
-    for entry in SEARCH_CONFIG["models"]:
-        tracker.register_model(entry["make"], entry["model"])
-
-    tracker.start_refresh_loop()
-
-    print(f"\n Starting scrape by model:")
 
     for entry in models:
-        model_start_time = time.time()
         make = entry["make"]
         model = entry["model"]
+        shared_state.dispatcher = Dispatcher(job_queue, shared_state, total_pages)
 
-        local_vins, local_updated = scrape_main_results(
-            [make], [model], "local", seen_vins, zip_code, radius)
-        seen_vins.update(local_vins)
-        print()  # newline after local
-        print(f" - Total Requests: {page_fetcher.total_requests_made}")
-        print(f" - Total Downloaded: {page_fetcher.total_bytes_downloaded / 1024 / 1024:.2f} MB")
+        for page_num in range(1, total_pages + 1):
+            enqueue_with_priority(job_queue, PageLoadJob(
+                page_num=page_num,
+                makes=[make],
+                models=[model],
+                scope="local",
+                zip_code=zip_code,
+                radius=radius,
+                shared_state=shared_state
+            ))
 
-        # Scrape national with timer feedback
-        national_vins, national_updated = scrape_main_results([make], [model], "national", seen_vins, zip_code, radius)
+            enqueue_with_priority(job_queue, PageLoadJob(
+                page_num=page_num,
+                makes=[make],
+                models=[model],
+                scope="national",
+                zip_code=zip_code,
+                radius=radius,
+                shared_state=shared_state
+            ))
 
-        total_new = len(local_vins) + len(national_vins)
-        total_updated = local_updated + national_updated
-        new_vins_by_model[f"{make} {model}"] = total_new
-        updated_vins_by_model[f"{make} {model}"] = total_updated
+    job_queue.join()
 
-        print(f"\n Finished scraping {model}, {len(seen_vins)} unique VINs, {total_new} new VINs, {total_updated} VINs updated.")
-        elapsed = time.time() - model_start_time
-        mins, secs = divmod(int(elapsed), 60)
-        print(f" Model run time: {mins}m {secs}s")
-        # Data usage
-        print(f"\n 📡 Estimated Data Usage:")
-        print(f" - Total Requests: {page_fetcher.total_requests_made}")
-        print(f" - Total Downloaded: {page_fetcher.total_bytes_downloaded / 1024 / 1024:.2f} MB")
-
-    refresh_cleaned_listings()
-    verify_active_listings()
+    for _ in workers:
+        job_queue.put(StopJob())
+    for w in workers:
+        w.join()
 
     tracker.stop()
 

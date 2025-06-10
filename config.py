@@ -33,5 +33,18 @@ SEARCH_CONFIG = {
     "prioritize_local_first": True
 }
 
+JOB_PRIORITIES = {
+    "PageLoadJob": 1,
+    "ListingIDResolutionJob": 2,
+    "DetailScrapeJob": 3,
+    "VerifierJob": 4,
+    "SaveJob": 5,
+    "FlushSaveBufferJob": 6
+}
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "cars.db")
+PAGE_SIZE = 100
+BASE_URL = "https://www.cars.com/shopping/results/"
+
+ENQUEUE_BATCH_SIZE = 25

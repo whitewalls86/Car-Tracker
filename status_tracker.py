@@ -1,69 +1,88 @@
+from collections import defaultdict, deque
 import threading
 import time
-import os
-from collections import defaultdict
-from datetime import datetime
-import page_fetcher
+
+from rich.console import Console
+from rich.table import Table
+from rich.live import Live
+
+console = Console()
+
+
+class JobStatus:
+    def __init__(self):
+        self.created = 0
+        self.completed = 0
+        self.total_time = 0.0
+        self.start_times = deque()
+        self.lock = threading.Lock()
+
+    def job_started(self):
+        with self.lock:
+            self.created += 1
+            self.start_times.append(time.time())
+
+    def job_completed(self):
+        with self.lock:
+            self.completed += 1
+            if self.start_times:
+                start = self.start_times.popleft()
+                self.total_time += time.time() - start
+
+    def get_stats(self):
+        with self.lock:
+            avg_time = self.total_time / self.completed if self.completed else 0
+            remaining = self.created - self.completed
+            eta = remaining * avg_time
+            return {
+                "created": self.created,
+                "completed": self.completed,
+                "avg_time": avg_time,
+                "eta": eta
+            }
 
 
 class StatusTracker:
     def __init__(self):
-        self.status_table = defaultdict(dict)
-        self.lock = threading.Lock()
+        self.jobs = defaultdict(JobStatus)
         self.running = False
-        self.thread = None
 
-    def register_model(self, make, model):
-        key = (make, model)
-        with self.lock:
-            self.status_table[key] = {
-                "pages_scraped": 0,
-                "vins_seen": 0,
-                "new_vins": 0,
-                "updated_vins": 0,
-                "card_queue": 0,
-                "db_queue": 0,
-                "start_time": time.time(),
-                "initial_requests": page_fetcher.total_requests_made,
-                "initial_bytes": page_fetcher.total_bytes_downloaded,
-                "last_scraping": False,
-            }
+    def record_start(self, job_type: str):
+        self.jobs[job_type].job_started()
 
-    def update(self, make, model, **kwargs):
-        key = (make, model)
-        with self.lock:
-            for k, v in kwargs.items():
-                self.status_table[key][k] = v
+    def record_complete(self, job_type: str):
+        self.jobs[job_type].job_completed()
 
-    def start_refresh_loop(self, interval=1.0):
+    def start_loop(self, interval=1.0):
         self.running = True
-        self.thread = threading.Thread(target=self._refresh_loop, args=(interval,), daemon=True)
-        self.thread.start()
+        threading.Thread(target=self._loop, args=(interval,), daemon=True).start()
 
     def stop(self):
         self.running = False
-        if self.thread:
-            self.thread.join()
 
-    def _refresh_loop(self, interval):
-        while self.running:
-            self._render()
-            time.sleep(interval)
+    def _loop(self, interval):
+        with Live(self.render(), refresh_per_second=4, console=console) as live:
+            while self.running:
+                live.update(self.render())
+                time.sleep(interval)
 
-    def _render(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
-        with self.lock:
-            print("| Make     | Model               | Pages | VINs | New | Upd | CardQ | DBQ | Time   | Req | MB   |")
-            print("|----------|---------------------|-------|------|-----|-----|--------|-----|--------|-----|------|")
-            for (make, model), data in self.status_table.items():
-                elapsed = int(time.time() - data["start_time"])
-                mins, secs = divmod(elapsed, 60)
-                reqs = page_fetcher.total_requests_made - data.get("initial_requests", 0)
-                mb = (page_fetcher.total_bytes_downloaded - data.get("initial_bytes", 0)) / 1024 / 1024
-                print(f"| {make:<8} | {model:<19} | {data['pages_scraped']:>3}/40 | {data['vins_seen']:>4} | {data['new_vins']:>3} | {data['updated_vins']:>3} |  {data['card_queue']:>5} | {data['db_queue']:>3} | {mins:>2}m {secs:02}s | {reqs:>3} | {mb:>5.2f} |")
+    def render(self):
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Job Type", style="cyan")
+        table.add_column("Created", justify="right")
+        table.add_column("Done", justify="right")
+        table.add_column("Avg Time", justify="right")
+        table.add_column("ETA", justify="right")
 
-            # Find active scraping model
-            for (make, model), data in self.status_table.items():
-                if data.get("last_scraping"):
-                    print(f"\n🔄 Currently scraping: {make}-{model} | Page {data['pages_scraped']} | Cards: {data['card_queue']} | DB Queue: {data['db_queue']} | VINs: {data['vins_seen']} (New: {data['new_vins']}, Updated: {data['updated_vins']})")
-                    break
+        for job_type, status in self.jobs.items():
+            stats = status.get_stats()
+            eta_m, eta_s = divmod(int(stats["eta"]), 60)
+            eta_fmt = f"{eta_m}m {eta_s}s" if stats["eta"] > 0 else "--"
+            table.add_row(
+                job_type,
+                str(stats["created"]),
+                str(stats["completed"]),
+                f"{stats['avg_time']:.1f}s",
+                eta_fmt
+            )
+        return table
